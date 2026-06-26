@@ -24,7 +24,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     const db = client.db("skillswap");
-    const usersCollection = db.collection("users");
+    const usersCollection = db.collection("user");
     const tasksCollection = db.collection("tasks");
     const proposalsCollection = db.collection("proposals");
     const paymentsCollection = db.collection("payments");
@@ -51,7 +51,9 @@ async function run() {
         // Upsert: insert if not exists, skip if already saved
         const existing = await usersCollection.findOne({ email });
         if (existing) {
-          return res.status(200).json({ message: "User already exists.", user: existing });
+          return res
+            .status(200)
+            .json({ message: "User already exists.", user: existing });
         }
         const newUser = {
           name: name || "",
@@ -95,11 +97,12 @@ async function run() {
         if (image !== undefined) updateFields.image = image;
         if (skills !== undefined) updateFields.skills = skills;
         if (bio !== undefined) updateFields.bio = bio;
-        if (hourlyRate !== undefined) updateFields.hourlyRate = Number(hourlyRate);
+        if (hourlyRate !== undefined)
+          updateFields.hourlyRate = Number(hourlyRate);
 
         const result = await usersCollection.updateOne(
           { email },
-          { $set: updateFields }
+          { $set: updateFields },
         );
         if (result.matchedCount === 0) {
           return res.status(404).json({ message: "User not found." });
@@ -138,11 +141,13 @@ async function run() {
               completedJobs,
               totalReviews: reviews.length,
             };
-          })
+          }),
         );
         res.json({ freelancers: enriched });
       } catch (error) {
-        res.status(500).json({ message: "Failed to fetch freelancer listings." });
+        res
+          .status(500)
+          .json({ message: "Failed to fetch freelancer listings." });
       }
     });
 
@@ -164,6 +169,7 @@ async function run() {
       }
     });
 
+    // ============ Frreelancer get tasks ============
     // Browse Tasks: search + category filter, returns all matches (pagination added later)
     app.get("/tasks", async (req, res) => {
       try {
@@ -182,13 +188,16 @@ async function run() {
           .toArray();
         res.json({ tasks });
       } catch (error) {
-        res.status(500).json({ message: "Failed to fetch task catalog listings." });
+        res
+          .status(500)
+          .json({ message: "Failed to fetch task catalog listings." });
       }
     });
 
     // Single task detail (used on Task Details page and proposal form)
     // NOTE: This must be defined AFTER /tasks/featured to avoid "featured" being
     // treated as a MongoDB ObjectId
+    //
     app.get("/tasks/:id", async (req, res) => {
       try {
         const { id } = req.params;
@@ -200,8 +209,13 @@ async function run() {
           return res.status(404).json({ message: "Task not found." });
         }
         // Also send the client's name by joining with users
-        const clientUser = await usersCollection.findOne({ email: task.client_email });
-        res.json({ ...task, client_name: clientUser?.name || task.client_email });
+        const clientUser = await usersCollection.findOne({
+          email: task.client_email,
+        });
+        res.json({
+          ...task,
+          client_name: clientUser?.name || task.client_email,
+        });
       } catch (error) {
         res.status(500).json({ message: "Failed to fetch task details." });
       }
@@ -214,7 +228,9 @@ async function run() {
     app.get("/client/stats", async (req, res) => {
       const email = req.query.email;
       if (!email) {
-        return res.status(400).json({ message: "Missing email query parameter." });
+        return res
+          .status(400)
+          .json({ message: "Missing email query parameter." });
       }
       try {
         const taskMetrics = await tasksCollection
@@ -224,8 +240,12 @@ async function run() {
               $group: {
                 _id: null,
                 totalTasks: { $sum: 1 },
-                openTasks: { $sum: { $cond: [{ $eq: ["$status", "open"] }, 1, 0] } },
-                tasksInProgress: { $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] } },
+                openTasks: {
+                  $sum: { $cond: [{ $eq: ["$status", "open"] }, 1, 0] },
+                },
+                tasksInProgress: {
+                  $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] },
+                },
               },
             },
           ])
@@ -236,7 +256,11 @@ async function run() {
             { $group: { _id: null, totalSpent: { $sum: "$amount" } } },
           ])
           .toArray();
-        const stats = taskMetrics[0] || { totalTasks: 0, openTasks: 0, tasksInProgress: 0 };
+        const stats = taskMetrics[0] || {
+          totalTasks: 0,
+          openTasks: 0,
+          tasksInProgress: 0,
+        };
         res.json({
           totalTasks: stats.totalTasks,
           openTasks: stats.openTasks,
@@ -244,16 +268,28 @@ async function run() {
           totalSpent: financialMetrics[0]?.totalSpent || 0,
         });
       } catch (error) {
-        res.status(500).json({ message: "Failed to compile client dashboard stats." });
+        res
+          .status(500)
+          .json({ message: "Failed to compile client dashboard stats." });
       }
     });
 
     // Post a new task
     app.post("/tasks", async (req, res) => {
       try {
-        const { title, category, description, budget, deadline, client_email } = req.body;
-        if (!title || !category || !description || !budget || !deadline || !client_email) {
-          return res.status(400).json({ message: "All task fields are required." });
+        const { title, category, description, budget, deadline, client_email } =
+          req.body;
+        if (
+          !title ||
+          !category ||
+          !description ||
+          !budget ||
+          !deadline ||
+          !client_email
+        ) {
+          return res
+            .status(400)
+            .json({ message: "All task fields are required." });
         }
         const newTask = {
           title,
@@ -273,12 +309,14 @@ async function run() {
       }
     });
 
-    // Client's own task list
+    // ============  Client TAsks fetch ============
     app.get("/client/tasks", async (req, res) => {
       try {
         const email = req.query.email;
         if (!email) {
-          return res.status(400).json({ message: "Missing email query parameter." });
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
         }
         const myTasks = await tasksCollection
           .find({ client_email: email })
@@ -298,12 +336,16 @@ async function run() {
           return res.status(400).json({ message: "Invalid task ID format." });
         }
         const updatedFields = req.body;
-        const targetTask = await tasksCollection.findOne({ _id: new ObjectId(id) });
+        const targetTask = await tasksCollection.findOne({
+          _id: new ObjectId(id),
+        });
         if (!targetTask) {
           return res.status(404).json({ message: "Task not found." });
         }
         if (targetTask.status !== "open") {
-          return res.status(400).json({ message: "Only open tasks can be edited." });
+          return res
+            .status(400)
+            .json({ message: "Only open tasks can be edited." });
         }
         const setFields = { ...updatedFields };
         if (setFields.budget) setFields.budget = Number(setFields.budget);
@@ -311,7 +353,7 @@ async function run() {
         delete setFields._id;
         const result = await tasksCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: setFields }
+          { $set: setFields },
         );
         res.json(result);
       } catch (error) {
@@ -331,16 +373,22 @@ async function run() {
           return res.status(404).json({ message: "Task not found." });
         }
         if (task.status !== "open") {
-          return res.status(400).json({ message: "In-progress or completed tasks cannot be deleted." });
+          return res.status(400).json({
+            message: "In-progress or completed tasks cannot be deleted.",
+          });
         }
         const acceptedProposal = await proposalsCollection.findOne({
           task_id: id,
           status: "accepted",
         });
         if (acceptedProposal) {
-          return res.status(400).json({ message: "Cannot delete a task with an accepted proposal." });
+          return res.status(400).json({
+            message: "Cannot delete a task with an accepted proposal.",
+          });
         }
-        const result = await tasksCollection.deleteOne({ _id: new ObjectId(id) });
+        const result = await tasksCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
         res.json(result);
       } catch (error) {
         res.status(500).json({ message: "Failed to delete task." });
@@ -363,32 +411,60 @@ async function run() {
         // Enrich with freelancer name from users collection
         const enriched = await Promise.all(
           proposals.map(async (p) => {
-            const user = await usersCollection.findOne({ email: p.freelancer_email });
+            const user = await usersCollection.findOne({
+              email: p.freelancer_email,
+            });
             return { ...p, freelancer_name: user?.name || p.freelancer_email };
-          })
+          }),
         );
         res.json({ proposals: enriched });
       } catch (error) {
-        res.status(500).json({ message: "Failed to fetch proposals for this task." });
+        res
+          .status(500)
+          .json({ message: "Failed to fetch proposals for this task." });
       }
     });
 
     // Submit a new proposal (freelancer applies to a task)
+    // ======== Freelancer proposal submit =====
     app.post("/proposals", async (req, res) => {
       try {
-        const { task_id, proposed_budget, estimated_days, cover_note, freelancer_email } = req.body;
-        if (!task_id || !proposed_budget || !estimated_days || !cover_note || !freelancer_email) {
-          return res.status(400).json({ message: "All proposal fields are required." });
+        const {
+          task_id,
+          proposed_budget,
+          estimated_days,
+          cover_note,
+          freelancer_email,
+        } = req.body;
+        if (
+          !task_id ||
+          !proposed_budget ||
+          !estimated_days ||
+          !cover_note ||
+          !freelancer_email
+        ) {
+          return res
+            .status(400)
+            .json({ message: "All proposal fields are required." });
         }
         // Block duplicate applications
-        const existing = await proposalsCollection.findOne({ task_id, freelancer_email });
+        const existing = await proposalsCollection.findOne({
+          task_id,
+          freelancer_email,
+        });
         if (existing) {
-          return res.status(400).json({ message: "You already submitted a proposal for this task." });
+          return res.status(400).json({
+            message: "You already submitted a proposal for this task.",
+          });
         }
         // Block applying to your own task (if the freelancer is also a client)
-        const task = await tasksCollection.findOne({ _id: new ObjectId(task_id) });
+        const task = await tasksCollection.findOne({
+          _id: new ObjectId(task_id),
+        });
         if (task && task.client_email === freelancer_email) {
-          return res.status(400).json({ message: "You cannot apply to your own task." });
+          return res
+            .status(400)
+            .json({ message: "You cannot apply to your own task." });
         }
         const newProposal = {
           task_id,
@@ -398,6 +474,7 @@ async function run() {
           cover_note,
           status: "pending",
           submitted_at: new Date(),
+          client_email: task?.client_email,
         };
         const result = await proposalsCollection.insertOne(newProposal);
         res.status(201).json(result);
@@ -413,12 +490,18 @@ async function run() {
         const { id } = req.params;
         const { status } = req.body; // "accepted" or "rejected"
         if (!["accepted", "rejected"].includes(status)) {
-          return res.status(400).json({ message: "Status must be 'accepted' or 'rejected'." });
+          return res
+            .status(400)
+            .json({ message: "Status must be 'accepted' or 'rejected'." });
         }
         if (!ObjectId.isValid(id)) {
-          return res.status(400).json({ message: "Invalid proposal ID format." });
+          return res
+            .status(400)
+            .json({ message: "Invalid proposal ID format." });
         }
-        const proposal = await proposalsCollection.findOne({ _id: new ObjectId(id) });
+        const proposal = await proposalsCollection.findOne({
+          _id: new ObjectId(id),
+        });
         if (!proposal) {
           return res.status(404).json({ message: "Proposal not found." });
         }
@@ -430,7 +513,9 @@ async function run() {
             status: "accepted",
           });
           if (alreadyAccepted) {
-            return res.status(400).json({ message: "A proposal for this task has already been accepted." });
+            return res.status(400).json({
+              message: "A proposal for this task has already been accepted.",
+            });
           }
           // Update the task: set status to in_progress and record the hired freelancer
           await tasksCollection.updateOne(
@@ -441,17 +526,104 @@ async function run() {
                 freelancer_email: proposal.freelancer_email,
                 accepted_budget: proposal.proposed_budget,
               },
-            }
+            },
           );
         }
 
         const result = await proposalsCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { status } }
+          { $set: { status } },
         );
         res.json({ message: `Proposal ${status} successfully.`, result });
       } catch (error) {
         res.status(500).json({ message: "Failed to update proposal status." });
+      }
+    });
+
+    // Get all proposals for a client (using client_email stored on proposal)
+    app.get("/proposals/client", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) {
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
+        }
+        const proposals = await proposalsCollection
+          .find({ client_email: email })
+          .sort({ submitted_at: -1 })
+          .toArray();
+
+        // Enrich with freelancer name and task title
+        const enriched = await Promise.all(
+          proposals.map(async (p) => {
+            const freelancer = await usersCollection.findOne({
+              email: p.freelancer_email,
+            });
+            let taskTitle = "Unknown Task";
+            if (ObjectId.isValid(p.task_id)) {
+              const task = await tasksCollection.findOne({
+                _id: new ObjectId(p.task_id),
+              });
+              taskTitle = task?.title || taskTitle;
+            }
+            return {
+              ...p,
+              freelancer_name: freelancer?.name || p.freelancer_email,
+              task_title: taskTitle,
+            };
+          }),
+        );
+        res.json({ proposals: enriched });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch client proposals." });
+      }
+    });
+
+    // edit profile
+    app.patch("/users/:email", async (req, res) => {
+      try {
+        const { email } = req.params;
+        const { name, image, bio, hourlyRate, skills } = req.body;
+
+        // 1. Find the user to verify role permissions
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        // 2. Strict Role Check: Block clients from accessing freelancer-only fields
+        if (user.role !== "freelancer") {
+          return res.status(403).json({
+            message: "Forbidden: Only freelancers can update profile details.",
+          });
+        }
+
+        // 3. Update using $set to append new structural fields dynamically
+        const updateDoc = {
+          $set: {
+            name,
+            image,
+            bio,
+            hourlyRate: Number(hourlyRate),
+            skills: Array.isArray(skills) ? skills : [],
+            updatedAt: new Date(), // Syncs with BetterAuth's tracking format
+          },
+        };
+
+        const result = await usersCollection.updateOne({ email }, updateDoc);
+
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "Failed to update database record." });
+        }
+
+        res.status(200).json({ message: "Profile updated successfully!" });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Internal server error", error: error.message });
       }
     });
 
@@ -460,7 +632,9 @@ async function run() {
       try {
         const email = req.query.email;
         if (!email) {
-          return res.status(400).json({ message: "Missing email query parameter." });
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
         }
         const proposals = await proposalsCollection
           .find({ freelancer_email: email })
@@ -472,11 +646,13 @@ async function run() {
           proposals.map(async (p) => {
             let taskTitle = "Unknown Task";
             if (ObjectId.isValid(p.task_id)) {
-              const task = await tasksCollection.findOne({ _id: new ObjectId(p.task_id) });
+              const task = await tasksCollection.findOne({
+                _id: new ObjectId(p.task_id),
+              });
               taskTitle = task?.title || taskTitle;
             }
             return { ...p, task_title: taskTitle };
-          })
+          }),
         );
         res.json({ proposals: enriched });
       } catch (error) {
@@ -492,7 +668,9 @@ async function run() {
       try {
         const email = req.query.email;
         if (!email) {
-          return res.status(400).json({ message: "Missing email query parameter." });
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
         }
         const proposalMetrics = await proposalsCollection
           .aggregate([
@@ -501,15 +679,21 @@ async function run() {
               $group: {
                 _id: null,
                 totalProposals: { $sum: 1 },
-                pendingProposals: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
-                acceptedProposals: { $sum: { $cond: [{ $eq: ["$status", "accepted"] }, 1, 0] } },
+                pendingProposals: {
+                  $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] },
+                },
+                acceptedProposals: {
+                  $sum: { $cond: [{ $eq: ["$status", "accepted"] }, 1, 0] },
+                },
               },
             },
           ])
           .toArray();
         const earningsMetrics = await paymentsCollection
           .aggregate([
-            { $match: { freelancer_email: email, payment_status: "successful" } },
+            {
+              $match: { freelancer_email: email, payment_status: "successful" },
+            },
             { $group: { _id: null, totalEarnings: { $sum: "$amount" } } },
           ])
           .toArray();
@@ -525,7 +709,9 @@ async function run() {
           totalEarnings: earningsMetrics[0]?.totalEarnings || 0,
         });
       } catch (error) {
-        res.status(500).json({ message: "Failed to compile freelancer dashboard stats." });
+        res
+          .status(500)
+          .json({ message: "Failed to compile freelancer dashboard stats." });
       }
     });
 
@@ -534,7 +720,9 @@ async function run() {
       try {
         const email = req.query.email;
         if (!email) {
-          return res.status(400).json({ message: "Missing email query parameter." });
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
         }
         const projects = await tasksCollection
           .find({
@@ -549,6 +737,62 @@ async function run() {
       }
     });
 
+    // ====== Admin ====
+    // 1. Get all users for administration
+    app.get("/admin/users", async (req, res) => {
+      try {
+        // Exclude passwords or sensitive internal tokens if any exist
+        const users = await usersCollection
+          .find({}, { projection: { password: 0 } })
+          .toArray();
+        res.json({ users });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch platform accounts." });
+      }
+    });
+
+    // 2. Block a user
+    app.patch("/admin/users/:id/block", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isBlocked: true } },
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "User account not found." });
+        }
+        res.json({
+          success: true,
+          message: "User has been blocked successfully.",
+        });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to update block state." });
+      }
+    });
+
+    // 3. Unblock a user
+    app.patch("/admin/users/:id/unblock", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isBlocked: false } },
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "User account not found." });
+        }
+        res.json({
+          success: true,
+          message: "User has been unblocked successfully.",
+        });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to update unblock state." });
+      }
+    });
+
     // Submit deliverable: freelancer marks a task as completed and provides a link
     app.patch("/tasks/:id/deliver", async (req, res) => {
       try {
@@ -558,23 +802,38 @@ async function run() {
           return res.status(400).json({ message: "Invalid task ID format." });
         }
         if (!deliverable_url) {
-          return res.status(400).json({ message: "Deliverable URL is required." });
+          return res
+            .status(400)
+            .json({ message: "Deliverable URL is required." });
         }
         const task = await tasksCollection.findOne({ _id: new ObjectId(id) });
         if (!task) {
           return res.status(404).json({ message: "Task not found." });
         }
         if (task.freelancer_email !== freelancer_email) {
-          return res.status(403).json({ message: "You are not the assigned freelancer for this task." });
+          return res.status(403).json({
+            message: "You are not the assigned freelancer for this task.",
+          });
         }
         if (task.status !== "in_progress") {
-          return res.status(400).json({ message: "Only in-progress tasks can be marked as completed." });
+          return res.status(400).json({
+            message: "Only in-progress tasks can be marked as completed.",
+          });
         }
         const result = await tasksCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { status: "completed", deliverable_url, completedAt: new Date() } }
+          {
+            $set: {
+              status: "completed",
+              deliverable_url,
+              completedAt: new Date(),
+            },
+          },
         );
-        res.json({ message: "Deliverable submitted. Task marked as completed.", result });
+        res.json({
+          message: "Deliverable submitted. Task marked as completed.",
+          result,
+        });
       } catch (error) {
         res.status(500).json({ message: "Failed to submit deliverable." });
       }
@@ -585,7 +844,9 @@ async function run() {
       try {
         const email = req.query.email;
         if (!email) {
-          return res.status(400).json({ message: "Missing email query parameter." });
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
         }
         const payments = await paymentsCollection
           .find({ freelancer_email: email, payment_status: "successful" })
@@ -598,13 +859,17 @@ async function run() {
             let taskTitle = "Unknown Task";
             let clientName = p.client_email;
             if (p.task_id && ObjectId.isValid(p.task_id)) {
-              const task = await tasksCollection.findOne({ _id: new ObjectId(p.task_id) });
+              const task = await tasksCollection.findOne({
+                _id: new ObjectId(p.task_id),
+              });
               taskTitle = task?.title || taskTitle;
             }
-            const clientUser = await usersCollection.findOne({ email: p.client_email });
+            const clientUser = await usersCollection.findOne({
+              email: p.client_email,
+            });
             clientName = clientUser?.name || clientName;
             return { ...p, task_title: taskTitle, client_name: clientName };
-          })
+          }),
         );
         res.json({ earnings: enriched });
       } catch (error) {
@@ -620,7 +885,9 @@ async function run() {
       try {
         const totalUsers = await usersCollection.countDocuments();
         const totalTasks = await tasksCollection.countDocuments();
-        const activeTasks = await tasksCollection.countDocuments({ status: "in_progress" });
+        const activeTasks = await tasksCollection.countDocuments({
+          status: "in_progress",
+        });
         const revenueData = await paymentsCollection
           .aggregate([
             { $match: { payment_status: "successful" } },
@@ -641,7 +908,10 @@ async function run() {
     // List all users (admin)
     app.get("/admin/users", async (req, res) => {
       try {
-        const users = await usersCollection.find({}).sort({ createdAt: -1 }).toArray();
+        const users = await usersCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
         res.json({ users });
       } catch (error) {
         res.status(500).json({ message: "Failed to fetch user list." });
@@ -657,25 +927,35 @@ async function run() {
           return res.status(400).json({ message: "Invalid user ID format." });
         }
         if (typeof isBlocked !== "boolean") {
-          return res.status(400).json({ message: "isBlocked must be a boolean value." });
+          return res
+            .status(400)
+            .json({ message: "isBlocked must be a boolean value." });
         }
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { isBlocked } }
+          { $set: { isBlocked } },
         );
         if (result.matchedCount === 0) {
           return res.status(404).json({ message: "User not found." });
         }
-        res.json({ message: `User ${isBlocked ? "blocked" : "unblocked"} successfully.`, result });
+        res.json({
+          message: `User ${isBlocked ? "blocked" : "unblocked"} successfully.`,
+          result,
+        });
       } catch (error) {
-        res.status(500).json({ message: "Failed to update user block status." });
+        res
+          .status(500)
+          .json({ message: "Failed to update user block status." });
       }
     });
 
     // List all tasks (admin)
     app.get("/admin/tasks", async (req, res) => {
       try {
-        const tasks = await tasksCollection.find({}).sort({ createdAt: -1 }).toArray();
+        const tasks = await tasksCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
         res.json({ tasks });
       } catch (error) {
         res.status(500).json({ message: "Failed to fetch task list." });
@@ -689,7 +969,9 @@ async function run() {
         if (!ObjectId.isValid(id)) {
           return res.status(400).json({ message: "Invalid task ID format." });
         }
-        const result = await tasksCollection.deleteOne({ _id: new ObjectId(id) });
+        const result = await tasksCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
         if (result.deletedCount === 0) {
           return res.status(404).json({ message: "Task not found." });
         }
@@ -708,7 +990,9 @@ async function run() {
           .toArray();
         res.json({ transactions });
       } catch (error) {
-        res.status(500).json({ message: "Failed to fetch transaction history." });
+        res
+          .status(500)
+          .json({ message: "Failed to fetch transaction history." });
       }
     });
 
@@ -719,14 +1003,22 @@ async function run() {
     // Post a review (client reviews freelancer after task completion)
     app.post("/reviews", async (req, res) => {
       try {
-        const { task_id, reviewer_email, reviewee_email, rating, comment } = req.body;
+        const { task_id, reviewer_email, reviewee_email, rating, comment } =
+          req.body;
         if (!task_id || !reviewer_email || !reviewee_email || !rating) {
-          return res.status(400).json({ message: "All review fields are required." });
+          return res
+            .status(400)
+            .json({ message: "All review fields are required." });
         }
         // One review per task
-        const existing = await reviewsCollection.findOne({ task_id, reviewer_email });
+        const existing = await reviewsCollection.findOne({
+          task_id,
+          reviewer_email,
+        });
         if (existing) {
-          return res.status(400).json({ message: "You have already submitted a review for this task." });
+          return res.status(400).json({
+            message: "You have already submitted a review for this task.",
+          });
         }
         const newReview = {
           task_id,
