@@ -114,42 +114,41 @@ async function run() {
     });
 
     // Browse Freelancers page — all users with role "freelancer"
-    app.get("/freelancers", async (req, res) => {
-      try {
-        const freelancers = await usersCollection
-          .find({ role: "freelancer", isBlocked: false })
-          .sort({ createdAt: -1 })
-          .toArray();
+   // Browse Freelancers page — all users with role "freelancer"
+app.get("/freelancers", async (req, res) => {
+  try {
+    const freelancers = await usersCollection
+      .find({ role: "freelancer" })
+      .sort({ createdAt: -1 })
+      .toArray();
 
-        // Attach average rating and completed job count for each freelancer
-        const enriched = await Promise.all(
-          freelancers.map(async (f) => {
-            const reviews = await reviewsCollection
-              .find({ reviewee_email: f.email })
-              .toArray();
-            const completedJobs = await tasksCollection.countDocuments({
-              freelancer_email: f.email,
-              status: "completed",
-            });
-            const avgRating =
-              reviews.length > 0
-                ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-                : 0;
-            return {
-              ...f,
-              averageRating: parseFloat(avgRating.toFixed(1)),
-              completedJobs,
-              totalReviews: reviews.length,
-            };
-          }),
-        );
-        res.json({ freelancers: enriched });
-      } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Failed to fetch freelancer listings." });
-      }
-    });
+    const enriched = await Promise.all(
+      freelancers.map(async (f) => {
+        const reviews = await reviewsCollection
+          .find({ reviewee_email: f.email })
+          .toArray();
+        const completedJobs = await tasksCollection.countDocuments({
+          freelancer_email: f.email,
+          status: "completed",
+        });
+        const avgRating =
+          reviews.length > 0
+            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+            : 0;
+        return {
+          ...f,
+          averageRating: parseFloat(avgRating.toFixed(1)),
+          completedJobs,
+          totalReviews: reviews.length,
+        };
+      }),
+    );
+
+    res.json({ freelancers: enriched });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch freelancer listings." });
+  }
+});
 
     // ==========================================
     // TASKS — PUBLIC
@@ -171,28 +170,28 @@ async function run() {
 
     // ============ Frreelancer get tasks ============
     // Browse Tasks: search + category filter, returns all matches (pagination added later)
-    app.get("/tasks", async (req, res) => {
-      try {
-        const search = req.query.search || "";
-        const category = req.query.category || "";
-        const query = { status: "open" };
-        if (search) {
-          query.title = { $regex: search, $options: "i" };
-        }
-        if (category && category !== "All") {
-          query.category = category;
-        }
-        const tasks = await tasksCollection
-          .find(query)
-          .sort({ createdAt: -1 })
-          .toArray();
-        res.json({ tasks });
-      } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Failed to fetch task catalog listings." });
-      }
-    });
+  app.get("/tasks", async (req, res) => {
+  try {
+    const search = req.query.search || "";
+    const category = req.query.category || "";
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit) || 9);
+    const skip = (page - 1) * limit;
+
+    const query = { status: "open" };
+    if (search) query.title = { $regex: search, $options: "i" };
+    if (category && category !== "All") query.category = category;
+
+    const [tasks, total] = await Promise.all([
+      tasksCollection.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
+      tasksCollection.countDocuments(query),
+    ]);
+
+    res.json({ tasks, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch task catalog listings." });
+  }
+});
 
     // Single task detail (used on Task Details page and proposal form)
     // NOTE: This must be defined AFTER /tasks/featured to avoid "featured" being
