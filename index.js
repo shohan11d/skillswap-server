@@ -4,6 +4,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const express = require("express");
 const dotenv = require("dotenv");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 dotenv.config();
 
 const app = express();
@@ -20,6 +21,29 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+);
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req?.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    console.log("payload", payload);
+    next();
+  } catch (error) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+};
 
 async function run() {
   try {
@@ -114,41 +138,43 @@ async function run() {
     });
 
     // Browse Freelancers page — all users with role "freelancer"
-   // Browse Freelancers page — all users with role "freelancer"
-app.get("/freelancers", async (req, res) => {
-  try {
-    const freelancers = await usersCollection
-      .find({ role: "freelancer" })
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    const enriched = await Promise.all(
-      freelancers.map(async (f) => {
-        const reviews = await reviewsCollection
-          .find({ reviewee_email: f.email })
+    // Browse Freelancers page — all users with role "freelancer"
+    app.get("/freelancers", async (req, res) => {
+      try {
+        const freelancers = await usersCollection
+          .find({ role: "freelancer" })
+          .sort({ createdAt: -1 })
           .toArray();
-        const completedJobs = await tasksCollection.countDocuments({
-          freelancer_email: f.email,
-          status: "completed",
-        });
-        const avgRating =
-          reviews.length > 0
-            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-            : 0;
-        return {
-          ...f,
-          averageRating: parseFloat(avgRating.toFixed(1)),
-          completedJobs,
-          totalReviews: reviews.length,
-        };
-      }),
-    );
 
-    res.json({ freelancers: enriched });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch freelancer listings." });
-  }
-});
+        const enriched = await Promise.all(
+          freelancers.map(async (f) => {
+            const reviews = await reviewsCollection
+              .find({ reviewee_email: f.email })
+              .toArray();
+            const completedJobs = await tasksCollection.countDocuments({
+              freelancer_email: f.email,
+              status: "completed",
+            });
+            const avgRating =
+              reviews.length > 0
+                ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+                : 0;
+            return {
+              ...f,
+              averageRating: parseFloat(avgRating.toFixed(1)),
+              completedJobs,
+              totalReviews: reviews.length,
+            };
+          }),
+        );
+
+        res.json({ freelancers: enriched });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Failed to fetch freelancer listings." });
+      }
+    });
 
     // ==========================================
     // TASKS — PUBLIC
@@ -170,28 +196,35 @@ app.get("/freelancers", async (req, res) => {
 
     // ============ Frreelancer get tasks ============
     // Browse Tasks: search + category filter, returns all matches (pagination added later)
-  app.get("/tasks", async (req, res) => {
-  try {
-    const search = req.query.search || "";
-    const category = req.query.category || "";
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(50, parseInt(req.query.limit) || 9);
-    const skip = (page - 1) * limit;
+    app.get("/tasks", async (req, res) => {
+      try {
+        const search = req.query.search || "";
+        const category = req.query.category || "";
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(50, parseInt(req.query.limit) || 9);
+        const skip = (page - 1) * limit;
 
-    const query = { status: "open" };
-    if (search) query.title = { $regex: search, $options: "i" };
-    if (category && category !== "All") query.category = category;
+        const query = { status: "open" };
+        if (search) query.title = { $regex: search, $options: "i" };
+        if (category && category !== "All") query.category = category;
 
-    const [tasks, total] = await Promise.all([
-      tasksCollection.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
-      tasksCollection.countDocuments(query),
-    ]);
+        const [tasks, total] = await Promise.all([
+          tasksCollection
+            .find(query)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .toArray(),
+          tasksCollection.countDocuments(query),
+        ]);
 
-    res.json({ tasks, total, page, limit });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch task catalog listings." });
-  }
-});
+        res.json({ tasks, total, page, limit });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Failed to fetch task catalog listings." });
+      }
+    });
 
     // Single task detail (used on Task Details page and proposal form)
     // NOTE: This must be defined AFTER /tasks/featured to avoid "featured" being
@@ -274,7 +307,7 @@ app.get("/freelancers", async (req, res) => {
     });
 
     // Post a new task
-    app.post("/tasks", async (req, res) => {
+    app.post("/tasks", verifyToken, async (req, res) => {
       try {
         const { title, category, description, budget, deadline, client_email } =
           req.body;
@@ -426,7 +459,7 @@ app.get("/freelancers", async (req, res) => {
 
     // Submit a new proposal (freelancer applies to a task)
     // ======== Freelancer proposal submit =====
-    app.post("/proposals", async (req, res) => {
+    app.post("/proposals", verifyToken, async (req, res) => {
       try {
         const {
           task_id,
@@ -484,7 +517,7 @@ app.get("/freelancers", async (req, res) => {
 
     // Accept or reject a proposal
     // Accepting also updates the task status to "in_progress" and saves the freelancer's email on the task
-    app.patch("/proposals/:id", async (req, res) => {
+    app.patch("/proposals/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
         const { status } = req.body; // "accepted" or "rejected"
