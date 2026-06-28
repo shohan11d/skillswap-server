@@ -50,7 +50,7 @@ node index.js
 npx nodemon index.js
 ```
 
-Server runs on `http://localhost:5000` by default.
+Server runs on https://skillswap-server-nuad49gv2-mohammad-shohans-projects.vercel.app/by default.
 
 ---
 
