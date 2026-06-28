@@ -61,6 +61,67 @@ async function run() {
       res.send("SkillSwap Development Server Running.");
     });
 
+    app.post("/payments", async (req, res) => {
+      try {
+        const { task_id, proposal_id, client_email, freelancer_email, amount } =
+          req.body;
+
+        if (!task_id || !client_email || !freelancer_email || !amount) {
+          return res
+            .status(400)
+            .json({ message: "Missing required payment fields." });
+        }
+
+        const newPayment = {
+          task_id,
+          proposal_id,
+          client_email,
+          freelancer_email,
+          amount: Number(amount),
+          payment_status: "successful",
+          paid_at: new Date(),
+        };
+
+        const result = await paymentsCollection.insertOne(newPayment);
+        res.status(201).json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to record payment." });
+      }
+    });
+
+    app.get("/payments/client", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) {
+          return res
+            .status(400)
+            .json({ message: "Missing email query parameter." });
+        }
+
+        const payments = await paymentsCollection
+          .find({ client_email: email, payment_status: "successful" })
+          .sort({ paid_at: -1 })
+          .toArray();
+
+        const enriched = await Promise.all(
+          payments.map(async (p) => {
+            let taskTitle = "Unknown Task";
+            if (p.task_id && ObjectId.isValid(p.task_id)) {
+              const task = await tasksCollection.findOne({
+                _id: new ObjectId(p.task_id),
+              });
+              taskTitle = task?.title || taskTitle;
+            }
+            return { ...p, task_title: taskTitle };
+          }),
+        );
+
+        res.json({ payments: enriched });
+      } catch (error) {
+        res.status(500).json({ message: "Failed to fetch client payments." });
+      }
+    });
+
     // ==========================================
     // USER ENDPOINTS
     // ==========================================
