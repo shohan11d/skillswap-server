@@ -1089,6 +1089,27 @@ async function run() {
       }
     });
 
+    app.get("/freelancers/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ message: "Invalid ID format." });
+        }
+        const freelancer = await usersCollection.findOne({
+          _id: new ObjectId(id),
+          role: "freelancer",
+        });
+        if (!freelancer) {
+          return res.status(404).json({ message: "Freelancer not found." });
+        }
+        res.json(freelancer);
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Failed to fetch freelancer profile." });
+      }
+    });
+
     console.log("Connected to MongoDB successfully.");
   } catch (error) {
     console.error("Database connection failure:", error);
